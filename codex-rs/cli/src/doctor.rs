@@ -1406,6 +1406,7 @@ async fn mcp_check_from_servers(servers: &HashMap<String, McpServerConfig>) -> D
     let mut missing_env = Vec::new();
     let mut unreachable_required_http = Vec::new();
     let mut unreachable_optional_http = Vec::new();
+    let mut issues = Vec::new();
 
     for (name, server) in servers {
         let disabled_server = !server.enabled || server.disabled_reason.is_some();
@@ -1428,19 +1429,45 @@ async fn mcp_check_from_servers(servers: &HashMap<String, McpServerConfig>) -> D
                     && !cwd.exists()
                 {
                     missing_env.push(format!("{name}: cwd does not exist ({})", cwd.display()));
+                    issues.push(
+                        mcp_issue(server, name, "configured cwd does not exist")
+                            .measured(cwd.display().to_string())
+                            .expected("existing working directory")
+                            .remedy("Create the directory or update mcp_servers.<name>.cwd.")
+                            .field(format!("mcp_servers.{name}.cwd")),
+                    );
                 }
                 if command.trim().is_empty() {
                     missing_env.push(format!("{name}: stdio command is empty"));
+                    issues.push(
+                        mcp_issue(server, name, "stdio command is empty")
+                            .expected("non-empty command")
+                            .remedy("Set mcp_servers.<name>.command to the MCP server executable.")
+                            .field(format!("mcp_servers.{name}.command")),
+                    );
                 } else if let Err(err) =
                     stdio_command_resolves(command, cwd.as_deref(), env.as_ref())
                 {
                     missing_env.push(format!(
                         "{name}: stdio command {command:?} is not resolvable ({err})"
                     ));
+                    issues.push(
+                        mcp_issue(server, name, "stdio command is not resolvable")
+                            .measured(format!("{command:?} ({err})"))
+                            .expected("command available on PATH or an absolute executable path")
+                            .remedy("Install the command, use an absolute path, or add the needed PATH via mcp_servers.<name>.env.")
+                            .field(format!("mcp_servers.{name}.command")),
+                    );
                 }
                 if let Some(env) = env {
                     for key in env.keys().filter(|key| key.trim().is_empty()) {
                         missing_env.push(format!("{name}: empty env key {key}"));
+                        issues.push(
+                            mcp_issue(server, name, "literal env table contains an empty key")
+                                .expected("non-empty environment variable name")
+                                .remedy("Remove the empty key from mcp_servers.<name>.env.")
+                                .field(format!("mcp_servers.{name}.env")),
+                        );
                     }
                 }
                 for env_var in env_vars {
@@ -1449,8 +1476,22 @@ async fn mcp_check_from_servers(servers: &HashMap<String, McpServerConfig>) -> D
                             "{name}: env_vars entry `{}` uses source `remote`, which requires remote MCP stdio",
                             env_var.name()
                         ));
+                        issues.push(
+                            mcp_issue(server, name, "remote env_vars source requires remote MCP stdio")
+                                .measured(env_var.name().to_string())
+                                .expected("local env var source for local stdio MCP servers")
+                                .remedy("Use a local env var source or run this MCP server through the remote stdio path.")
+                                .field(format!("mcp_servers.{name}.env_vars")),
+                        );
                     } else if !env_var_present(env_var.name()) {
                         missing_env.push(format!("{name}: env var {} is not set", env_var.name()));
+                        issues.push(
+                            mcp_issue(server, name, "forwarded env var is not set")
+                                .measured(format!("{} is absent", env_var.name()))
+                                .expected("variable present in the launching environment")
+                                .remedy("Export the variable before starting Codex, or set a literal value under mcp_servers.<name>.env when it is safe to store.")
+                                .field(format!("mcp_servers.{name}.env_vars")),
+                        );
                     }
                 }
             }
@@ -1468,17 +1509,38 @@ async fn mcp_check_from_servers(servers: &HashMap<String, McpServerConfig>) -> D
                     && !env_var_present(env_var)
                 {
                     missing_env.push(format!("{name}: bearer token env var {env_var} is not set"));
+                    issues.push(
+                        mcp_issue(server, name, "bearer token env var is not set")
+                            .measured(format!("{env_var} is absent"))
+                            .expected("variable present in the launching environment")
+                            .remedy("Export the bearer token variable before starting Codex.")
+                            .field(format!("mcp_servers.{name}.bearer_token_env_var")),
+                    );
                 }
                 if let Some(headers) = env_http_headers {
                     for env_var in headers.values() {
                         if !env_var_present(env_var) {
                             missing_env
                                 .push(format!("{name}: header env var {env_var} is not set"));
+                            issues.push(
+                                mcp_issue(server, name, "header env var is not set")
+                                    .measured(format!("{env_var} is absent"))
+                                    .expected("variable present in the launching environment")
+                                    .remedy("Export the header env var before starting Codex.")
+                                    .field(format!("mcp_servers.{name}.env_http_headers")),
+                            );
                         }
                     }
                 }
                 if let Err(err) = mcp_http_probe_url(url).await {
                     let detail = format!("{name}: {url} ({err})");
+                    issues.push(
+                        mcp_issue(server, name, "HTTP MCP endpoint is not reachable")
+                            .measured(format!("{url} ({err})"))
+                            .expected("reachable MCP endpoint")
+                            .remedy("Check the MCP server URL, network access, and authentication configuration.")
+                            .field(format!("mcp_servers.{name}.url")),
+                    );
                     if server.required {
                         unreachable_required_http.push(detail);
                     } else {
@@ -1526,10 +1588,22 @@ async fn mcp_check_from_servers(servers: &HashMap<String, McpServerConfig>) -> D
     };
 
     let mut check = DoctorCheck::new("mcp.config", "mcp", status, summary).details(details);
+    for issue in issues {
+        check = check.issue(issue);
+    }
     if status != CheckStatus::Ok {
         check = check.remediation("Set the missing MCP env vars or disable the affected server.");
     }
     check
+}
+
+fn mcp_issue(server: &McpServerConfig, name: &str, cause: &str) -> DoctorIssue {
+    let severity = if server.required {
+        CheckStatus::Fail
+    } else {
+        CheckStatus::Warning
+    };
+    DoctorIssue::new(severity, format!("MCP server `{name}` {cause}"))
 }
 
 fn sandbox_check(config: &Config, arg0_paths: &Arg0DispatchPaths) -> DoctorCheck {
@@ -3224,6 +3298,55 @@ mod tests {
                 "required: env_vars entry `REMOTE_ONLY_TOKEN` uses source `remote`, which requires remote MCP stdio",
             )
         }));
+        assert_eq!(check.issues.len(), 1);
+        assert_eq!(check.issues[0].severity, CheckStatus::Fail);
+        assert_eq!(
+            check.issues[0].cause,
+            "MCP server `required` remote env_vars source requires remote MCP stdio"
+        );
+        assert_eq!(
+            check.issues[0].fields,
+            vec!["mcp_servers.required.env_vars".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn mcp_check_adds_structured_issue_for_missing_env_var() {
+        let command = toml::Value::String(
+            std::env::current_exe()
+                .expect("current exe")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let optional_server: McpServerConfig = toml::from_str(&format!(
+            r#"
+                command = {command}
+                env_vars = ["__CODEX_DOCTOR_MISSING_ENV_FOR_TEST__"]
+            "#,
+        ))
+        .expect("should deserialize optional MCP config");
+        let servers = HashMap::from([("optional".to_string(), optional_server)]);
+
+        let check = mcp_check_from_servers(&servers).await;
+
+        assert_eq!(check.status, CheckStatus::Warning);
+        assert!(check.details.iter().any(|detail| {
+            detail.contains("optional: env var __CODEX_DOCTOR_MISSING_ENV_FOR_TEST__ is not set")
+        }));
+        assert_eq!(check.issues.len(), 1);
+        assert_eq!(check.issues[0].severity, CheckStatus::Warning);
+        assert_eq!(
+            check.issues[0].cause,
+            "MCP server `optional` forwarded env var is not set"
+        );
+        assert_eq!(
+            check.issues[0].measured.as_deref(),
+            Some("__CODEX_DOCTOR_MISSING_ENV_FOR_TEST__ is absent")
+        );
+        assert_eq!(
+            check.issues[0].fields,
+            vec!["mcp_servers.optional.env_vars".to_string()]
+        );
     }
 
     #[test]
