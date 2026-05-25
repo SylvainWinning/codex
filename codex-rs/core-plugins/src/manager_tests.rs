@@ -101,6 +101,14 @@ fn run_git(repo: &Path, args: &[&str]) {
 }
 
 fn plugin_config_toml(enabled: bool, plugins_feature_enabled: bool) -> String {
+    plugin_config_toml_with_skill_injection(enabled, plugins_feature_enabled, None)
+}
+
+fn plugin_config_toml_with_skill_injection(
+    enabled: bool,
+    plugins_feature_enabled: bool,
+    skill_injection: Option<&str>,
+) -> String {
     let mut root = toml::map::Map::new();
 
     let mut features = toml::map::Map::new();
@@ -112,6 +120,12 @@ fn plugin_config_toml(enabled: bool, plugins_feature_enabled: bool) -> String {
 
     let mut plugin = toml::map::Map::new();
     plugin.insert("enabled".to_string(), Value::Boolean(enabled));
+    if let Some(skill_injection) = skill_injection {
+        plugin.insert(
+            "skill_injection".to_string(),
+            Value::String(skill_injection.to_string()),
+        );
+    }
 
     let mut plugins = toml::map::Map::new();
     plugins.insert("sample@test".to_string(), Value::Table(plugin));
@@ -207,6 +221,7 @@ async fn load_plugins_loads_default_skills_and_mcp_servers() {
             ),
             root: AbsolutePathBuf::try_from(plugin_root.clone()).unwrap(),
             enabled: true,
+            skill_injection: Default::default(),
             skill_roots: vec![plugin_root.join("skills").abs()],
             disabled_skill_paths: HashSet::new(),
             has_enabled_skills: true,
@@ -263,6 +278,73 @@ async fn load_plugins_loads_default_skills_and_mcp_servers() {
         outcome.effective_apps(),
         vec![AppConnectorId("connector_example".to_string())]
     );
+}
+
+#[tokio::test]
+async fn load_plugins_marks_on_demand_skill_roots_as_explicit_only() {
+    let codex_home = TempDir::new().unwrap();
+    let plugin_root = codex_home
+        .path()
+        .join("plugins/cache")
+        .join("test/sample/local");
+    write_file(
+        &plugin_root.join(".codex-plugin/plugin.json"),
+        r#"{"name":"sample"}"#,
+    );
+    write_file(
+        &plugin_root.join("skills/sample-search/SKILL.md"),
+        "---\nname: sample-search\ndescription: search sample data\n---\n",
+    );
+
+    let outcome = load_plugins_from_config(
+        &plugin_config_toml_with_skill_injection(
+            /*enabled*/ true,
+            /*plugins_feature_enabled*/ true,
+            Some("on_demand"),
+        ),
+        codex_home.path(),
+    )
+    .await;
+
+    let roots = outcome.effective_plugin_skill_roots();
+    assert_eq!(roots.len(), 1);
+    assert_eq!(roots[0].path, plugin_root.join("skills").abs());
+    assert!(!roots[0].inject_in_default_context);
+    assert!(outcome.effective_skill_roots().is_empty());
+    assert!(outcome.capability_summaries()[0].has_skills);
+}
+
+#[tokio::test]
+async fn load_plugins_excludes_off_skill_roots_but_keeps_plugin_enabled() {
+    let codex_home = TempDir::new().unwrap();
+    let plugin_root = codex_home
+        .path()
+        .join("plugins/cache")
+        .join("test/sample/local");
+    write_file(
+        &plugin_root.join(".codex-plugin/plugin.json"),
+        r#"{"name":"sample"}"#,
+    );
+    write_file(
+        &plugin_root.join("skills/sample-search/SKILL.md"),
+        "---\nname: sample-search\ndescription: search sample data\n---\n",
+    );
+
+    let outcome = load_plugins_from_config(
+        &plugin_config_toml_with_skill_injection(
+            /*enabled*/ true,
+            /*plugins_feature_enabled*/ true,
+            Some("off"),
+        ),
+        codex_home.path(),
+    )
+    .await;
+
+    assert!(outcome.plugins()[0].enabled);
+    assert!(!outcome.plugins()[0].has_enabled_skills);
+    assert!(outcome.effective_plugin_skill_roots().is_empty());
+    assert!(outcome.effective_skill_roots().is_empty());
+    assert!(outcome.capability_summaries().is_empty());
 }
 
 #[tokio::test]
@@ -897,6 +979,7 @@ async fn load_plugins_preserves_disabled_plugins_without_effective_contributions
             manifest_description: None,
             root: AbsolutePathBuf::try_from(plugin_root).unwrap(),
             enabled: false,
+            skill_injection: Default::default(),
             skill_roots: Vec::new(),
             disabled_skill_paths: HashSet::new(),
             has_enabled_skills: false,
@@ -1017,6 +1100,7 @@ fn capability_index_filters_inactive_and_zero_capability_plugins() {
         manifest_description: None,
         root: AbsolutePathBuf::try_from(codex_home.path().join(dir_name)).unwrap(),
         enabled: true,
+        skill_injection: Default::default(),
         skill_roots: Vec::new(),
         disabled_skill_paths: HashSet::new(),
         has_enabled_skills: false,

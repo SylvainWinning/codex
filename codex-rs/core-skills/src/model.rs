@@ -90,6 +90,7 @@ pub struct SkillLoadOutcome {
     pub skills: Vec<SkillMetadata>,
     pub errors: Vec<SkillError>,
     pub disabled_paths: HashSet<AbsolutePathBuf>,
+    pub(crate) default_injection_disabled_paths: HashSet<AbsolutePathBuf>,
     pub(crate) skill_roots: Vec<AbsolutePathBuf>,
     pub(crate) skill_root_by_path: Arc<HashMap<AbsolutePathBuf, AbsolutePathBuf>>,
     pub(crate) file_systems_by_skill_path: SkillFileSystemsByPath,
@@ -103,7 +104,11 @@ impl SkillLoadOutcome {
     }
 
     pub fn is_skill_allowed_for_implicit_invocation(&self, skill: &SkillMetadata) -> bool {
-        self.is_skill_enabled(skill) && skill.allow_implicit_invocation()
+        self.is_skill_enabled(skill)
+            && !self
+                .default_injection_disabled_paths
+                .contains(&skill.path_to_skills_md)
+            && skill.allow_implicit_invocation()
     }
 
     pub fn allowed_skills_for_implicit_invocation(&self) -> Vec<SkillMetadata> {
@@ -176,6 +181,9 @@ pub fn filter_skill_load_outcome_for_product(
         .iter()
         .map(|skill| skill.path_to_skills_md.clone())
         .collect();
+    outcome
+        .default_injection_disabled_paths
+        .retain(|path| retained_paths.contains(path));
     outcome
         .file_systems_by_skill_path
         .retain_paths(&retained_paths);

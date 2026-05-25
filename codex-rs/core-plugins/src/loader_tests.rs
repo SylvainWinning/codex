@@ -51,6 +51,7 @@ fn configured_plugins_from_stack_merges_user_layers() {
                 "base".to_string(),
                 PluginConfig {
                     enabled: true,
+                    skill_injection: Default::default(),
                     mcp_servers: HashMap::new(),
                 },
             ),
@@ -58,6 +59,7 @@ fn configured_plugins_from_stack_merges_user_layers() {
                 "profile".to_string(),
                 PluginConfig {
                     enabled: false,
+                    skill_injection: Default::default(),
                     mcp_servers: HashMap::new(),
                 },
             ),

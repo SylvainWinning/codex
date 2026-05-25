@@ -156,6 +156,7 @@ pub struct SkillRoot {
     pub file_system: Arc<dyn ExecutorFileSystem>,
     pub plugin_id: Option<String>,
     pub plugin_root: Option<AbsolutePathBuf>,
+    pub inject_in_default_context: bool,
 }
 
 pub async fn load_skills_from_roots<I>(roots: I) -> SkillLoadOutcome
@@ -170,6 +171,7 @@ where
     for root in roots {
         let root_path = canonicalize_for_skill_identity(&root.path);
         let fs = root.file_system;
+        let inject_in_default_context = root.inject_in_default_context;
         let skills_before_root = outcome.skills.len();
         discover_skills_under_root(
             fs.as_ref(),
@@ -183,6 +185,13 @@ where
         for skill in &outcome.skills[skills_before_root..] {
             if !skill_roots.contains(&root_path) {
                 skill_roots.push(root_path.clone());
+            }
+            if !skill_root_by_path.contains_key(&skill.path_to_skills_md)
+                && !inject_in_default_context
+            {
+                outcome
+                    .default_injection_disabled_paths
+                    .insert(skill.path_to_skills_md.clone());
             }
             skill_root_by_path
                 .entry(skill.path_to_skills_md.clone())
@@ -202,6 +211,9 @@ where
         .iter()
         .map(|skill| skill.path_to_skills_md.clone())
         .collect();
+    outcome
+        .default_injection_disabled_paths
+        .retain(|path| retained_skill_paths.contains(path));
     skill_root_by_path.retain(|path, _| retained_skill_paths.contains(path));
     let used_roots: HashSet<AbsolutePathBuf> = skill_root_by_path.values().cloned().collect();
     skill_roots.retain(|root| used_roots.contains(root));
@@ -262,6 +274,7 @@ async fn skill_roots_with_home_dir(
         file_system: Arc::clone(&LOCAL_FS),
         plugin_id: Some(root.plugin_id),
         plugin_root: Some(root.plugin_root),
+        inject_in_default_context: root.inject_in_default_context,
     }));
     roots.extend(repo_agents_skill_roots(fs, config_layer_stack, cwd).await);
     dedupe_skill_roots_by_path(&mut roots);
@@ -292,6 +305,7 @@ fn skill_roots_from_layer_stack_inner(
                         file_system: Arc::clone(repo_fs),
                         plugin_id: None,
                         plugin_root: None,
+                        inject_in_default_context: true,
                     });
                 }
             }
@@ -304,6 +318,7 @@ fn skill_roots_from_layer_stack_inner(
                     file_system: Arc::clone(&LOCAL_FS),
                     plugin_id: None,
                     plugin_root: None,
+                    inject_in_default_context: true,
                 });
 
                 // `$HOME/.agents/skills` (user-installed skills).
@@ -314,6 +329,7 @@ fn skill_roots_from_layer_stack_inner(
                         file_system: Arc::clone(&LOCAL_FS),
                         plugin_id: None,
                         plugin_root: None,
+                        inject_in_default_context: true,
                     });
                 }
 
@@ -325,6 +341,7 @@ fn skill_roots_from_layer_stack_inner(
                     file_system: Arc::clone(&LOCAL_FS),
                     plugin_id: None,
                     plugin_root: None,
+                    inject_in_default_context: true,
                 });
             }
             ConfigLayerSource::System { .. } => {
@@ -336,6 +353,7 @@ fn skill_roots_from_layer_stack_inner(
                     file_system: Arc::clone(&LOCAL_FS),
                     plugin_id: None,
                     plugin_root: None,
+                    inject_in_default_context: true,
                 });
             }
             ConfigLayerSource::Mdm { .. }
@@ -369,6 +387,7 @@ async fn repo_agents_skill_roots(
                 file_system: Arc::clone(&fs),
                 plugin_id: None,
                 plugin_root: None,
+                inject_in_default_context: true,
             }),
             Ok(_) => {}
             Err(err) if err.kind() == io::ErrorKind::NotFound => {}

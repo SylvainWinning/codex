@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+use codex_config::types::PluginSkillInjection;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_plugins::PluginSkillRoot;
 
@@ -18,6 +19,7 @@ pub struct LoadedPlugin<M> {
     pub manifest_description: Option<String>,
     pub root: AbsolutePathBuf,
     pub enabled: bool,
+    pub skill_injection: PluginSkillInjection,
     pub skill_roots: Vec<AbsolutePathBuf>,
     pub disabled_skill_paths: HashSet<AbsolutePathBuf>,
     pub has_enabled_skills: bool,
@@ -109,7 +111,7 @@ impl<M: Clone> PluginLoadOutcome<M> {
         let mut skill_roots: Vec<AbsolutePathBuf> = self
             .plugins
             .iter()
-            .filter(|plugin| plugin.is_active())
+            .filter(|plugin| plugin.is_active() && plugin.skill_injection.injects_by_default())
             .flat_map(|plugin| plugin.skill_roots.iter().cloned())
             .collect();
         skill_roots.sort_unstable();
@@ -120,13 +122,18 @@ impl<M: Clone> PluginLoadOutcome<M> {
     pub fn effective_plugin_skill_roots(&self) -> Vec<PluginSkillRoot> {
         let mut skill_roots = Vec::new();
         let mut seen_paths = HashSet::new();
-        for plugin in self.plugins.iter().filter(|plugin| plugin.is_active()) {
+        for plugin in self
+            .plugins
+            .iter()
+            .filter(|plugin| plugin.is_active() && plugin.skill_injection.enables_explicit_skills())
+        {
             for path in &plugin.skill_roots {
                 if seen_paths.insert(path.clone()) {
                     skill_roots.push(PluginSkillRoot {
                         path: path.clone(),
                         plugin_id: plugin.config_name.clone(),
                         plugin_root: plugin.root.clone(),
+                        inject_in_default_context: plugin.skill_injection.injects_by_default(),
                     });
                 }
             }
@@ -222,6 +229,7 @@ mod tests {
             manifest_description: None,
             root: test_path(config_name),
             enabled: true,
+            skill_injection: PluginSkillInjection::Always,
             skill_roots,
             disabled_skill_paths: HashSet::new(),
             has_enabled_skills: true,
@@ -247,7 +255,38 @@ mod tests {
                 path: shared_root,
                 plugin_id: "zeta@test".to_string(),
                 plugin_root: test_path("zeta@test"),
+                inject_in_default_context: true,
             }]
         );
+    }
+
+    #[test]
+    fn effective_plugin_skill_roots_keeps_on_demand_roots_out_of_default_context() {
+        let root = test_path("on-demand-skills");
+        let mut plugin = loaded_plugin("alpha@test", vec![root.clone()]);
+        plugin.skill_injection = PluginSkillInjection::OnDemand;
+        let outcome = PluginLoadOutcome::from_plugins(vec![plugin]);
+
+        assert_eq!(
+            outcome.effective_plugin_skill_roots(),
+            vec![PluginSkillRoot {
+                path: root,
+                plugin_id: "alpha@test".to_string(),
+                plugin_root: test_path("alpha@test"),
+                inject_in_default_context: false,
+            }]
+        );
+        assert_eq!(outcome.effective_skill_roots(), Vec::new());
+    }
+
+    #[test]
+    fn effective_plugin_skill_roots_excludes_off_roots() {
+        let root = test_path("off-skills");
+        let mut plugin = loaded_plugin("alpha@test", vec![root]);
+        plugin.skill_injection = PluginSkillInjection::Off;
+        let outcome = PluginLoadOutcome::from_plugins(vec![plugin]);
+
+        assert!(outcome.effective_plugin_skill_roots().is_empty());
+        assert!(outcome.effective_skill_roots().is_empty());
     }
 }

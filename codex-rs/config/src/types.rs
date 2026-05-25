@@ -794,9 +794,37 @@ pub struct PluginConfig {
     #[serde(default = "default_enabled")]
     pub enabled: bool,
 
+    /// Controls whether this plugin's skills are injected into every turn by default.
+    #[serde(default, skip_serializing_if = "PluginSkillInjection::is_always")]
+    pub skill_injection: PluginSkillInjection,
+
     /// Per-MCP-server policy overlays for MCP servers contributed by this plugin.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub mcp_servers: HashMap<String, PluginMcpServerConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default, Clone, Copy, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginSkillInjection {
+    #[default]
+    Always,
+    OnDemand,
+    Off,
+}
+
+impl PluginSkillInjection {
+    pub fn injects_by_default(self) -> bool {
+        matches!(self, Self::Always)
+    }
+
+    pub fn enables_explicit_skills(self) -> bool {
+        !matches!(self, Self::Off)
+    }
+
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn is_always(&self) -> bool {
+        matches!(self, Self::Always)
+    }
 }
 
 /// Policy settings for a plugin-provided MCP server.

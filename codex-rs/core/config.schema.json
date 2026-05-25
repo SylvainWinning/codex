@@ -2166,6 +2166,14 @@
           },
           "description": "Per-MCP-server policy overlays for MCP servers contributed by this plugin.",
           "type": "object"
+        },
+        "skill_injection": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PluginSkillInjection"
+            }
+          ],
+          "description": "Controls whether this plugin's skills are injected into every turn by default."
         }
       },
       "type": "object"
@@ -2210,6 +2218,14 @@
         }
       },
       "type": "object"
+    },
+    "PluginSkillInjection": {
+      "enum": [
+        "always",
+        "on_demand",
+        "off"
+      ],
+      "type": "string"
     },
     "ProfileTui": {
       "additionalProperties": false,

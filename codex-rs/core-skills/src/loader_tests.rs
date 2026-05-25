@@ -600,6 +600,49 @@ policy: {}
 }
 
 #[tokio::test]
+async fn on_demand_plugin_root_loads_skill_without_implicit_invocation() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let plugin_root = root.path().join("plugins/twilio-developer-kit");
+    let skill_path = write_skill_at(
+        &plugin_root.join("skills"),
+        "twilio-send-message",
+        "send-message",
+        "send messages",
+    );
+
+    let outcome = load_skills_from_roots([SkillRoot {
+        path: plugin_root.join("skills").abs(),
+        scope: SkillScope::User,
+        file_system: Arc::clone(&LOCAL_FS),
+        plugin_id: Some("twilio-developer-kit@test".to_string()),
+        plugin_root: Some(plugin_root.abs()),
+        inject_in_default_context: false,
+    }])
+    .await;
+
+    assert!(
+        outcome.errors.is_empty(),
+        "unexpected errors: {:?}",
+        outcome.errors
+    );
+    assert_eq!(
+        outcome.skills,
+        vec![SkillMetadata {
+            name: "send-message".to_string(),
+            description: "send messages".to_string(),
+            short_description: None,
+            interface: None,
+            dependencies: None,
+            policy: None,
+            path_to_skills_md: normalized(&skill_path),
+            scope: SkillScope::User,
+            plugin_id: Some("twilio-developer-kit@test".to_string()),
+        }]
+    );
+    assert!(outcome.allowed_skills_for_implicit_invocation().is_empty());
+}
+
+#[tokio::test]
 async fn loads_skill_policy_products_from_yaml() {
     let codex_home = tempfile::tempdir().expect("tempdir");
     let skill_path = write_skill(&codex_home, "demo", "policy-products", "from yaml");
@@ -851,6 +894,7 @@ interface:
         file_system: Arc::clone(&LOCAL_FS),
         plugin_id: Some("twilio-developer-kit@test".to_string()),
         plugin_root: Some(plugin_root_abs.clone()),
+        inject_in_default_context: true,
     }])
     .await;
 
@@ -908,6 +952,7 @@ interface:
         file_system: Arc::clone(&LOCAL_FS),
         plugin_id: Some("twilio-developer-kit@test".to_string()),
         plugin_root: Some(plugin_root.abs()),
+        inject_in_default_context: true,
     }])
     .await;
 
@@ -1054,6 +1099,7 @@ async fn loads_skills_via_symlinked_subdir_for_admin_scope() {
         file_system: Arc::clone(&LOCAL_FS),
         plugin_id: None,
         plugin_root: None,
+        inject_in_default_context: true,
     }])
     .await;
 
@@ -1136,6 +1182,7 @@ async fn system_scope_ignores_symlinked_subdir() {
         file_system: Arc::clone(&LOCAL_FS),
         plugin_id: None,
         plugin_root: None,
+        inject_in_default_context: true,
     }])
     .await;
     assert!(
@@ -1170,6 +1217,7 @@ async fn respects_max_scan_depth_for_user_scope() {
         file_system: Arc::clone(&LOCAL_FS),
         plugin_id: None,
         plugin_root: None,
+        inject_in_default_context: true,
     }])
     .await;
 
@@ -1277,6 +1325,7 @@ async fn namespaces_plugin_skills_using_plugin_name() {
         file_system: Arc::clone(&LOCAL_FS),
         plugin_id: Some("sample@test".to_string()),
         plugin_root: Some(plugin_root.abs()),
+        inject_in_default_context: true,
     }])
     .await;
 
@@ -1600,6 +1649,7 @@ async fn deduplicates_by_path_preferring_first_root() {
             file_system: Arc::clone(&LOCAL_FS),
             plugin_id: None,
             plugin_root: None,
+            inject_in_default_context: true,
         },
         SkillRoot {
             path: root.path().abs(),
@@ -1607,6 +1657,7 @@ async fn deduplicates_by_path_preferring_first_root() {
             file_system: Arc::clone(&LOCAL_FS),
             plugin_id: None,
             plugin_root: None,
+            inject_in_default_context: true,
         },
     ])
     .await;

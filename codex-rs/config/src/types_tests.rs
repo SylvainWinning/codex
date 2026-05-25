@@ -43,6 +43,38 @@ fn deserialize_skill_config_with_path_selector() {
 }
 
 #[test]
+fn deserialize_plugin_config_defaults_skill_injection_to_always() {
+    let cfg: PluginConfig = toml::from_str(
+        r#"
+            enabled = true
+        "#,
+    )
+    .expect("should deserialize plugin config");
+
+    assert_eq!(
+        cfg,
+        PluginConfig {
+            enabled: true,
+            skill_injection: PluginSkillInjection::Always,
+            mcp_servers: Default::default(),
+        }
+    );
+}
+
+#[test]
+fn deserialize_plugin_config_with_on_demand_skill_injection() {
+    let cfg: PluginConfig = toml::from_str(
+        r#"
+            enabled = true
+            skill_injection = "on_demand"
+        "#,
+    )
+    .expect("should deserialize plugin config");
+
+    assert_eq!(cfg.skill_injection, PluginSkillInjection::OnDemand);
+}
+
+#[test]
 fn memories_config_clamps_count_limits_to_nonzero_values() {
     let config = MemoriesConfig::from(MemoriesToml {
         max_raw_memories_for_consolidation: Some(0),

@@ -67,6 +67,7 @@ fn plugin_skill_root_for_skill_path(skill_path: &Path, plugin_id: &str) -> Plugi
         path: skills_root.abs(),
         plugin_id: plugin_id.to_string(),
         plugin_root: plugin_root.abs(),
+        inject_in_default_context: true,
     }
 }
 
@@ -261,6 +262,48 @@ async fn skills_for_config_disables_plugin_skills_by_name() {
 
     assert_eq!(skill.path_to_skills_md, skill_path);
     assert!(outcome.disabled_paths.contains(&skill.path_to_skills_md));
+    assert!(
+        !outcome
+            .allowed_skills_for_implicit_invocation()
+            .iter()
+            .any(|allowed_skill| allowed_skill.path_to_skills_md == skill.path_to_skills_md)
+    );
+}
+
+#[tokio::test]
+async fn skills_for_config_keeps_on_demand_plugin_skills_out_of_implicit_invocation() {
+    let codex_home = tempfile::tempdir().expect("tempdir");
+    let cwd = tempfile::tempdir().expect("tempdir");
+    let skill_path = write_plugin_skill(
+        &codex_home,
+        "test",
+        "sample",
+        "sample-search",
+        "sample-search",
+        "search sample data",
+    );
+    let config_layer_stack = config_stack(&codex_home, "");
+    let mut plugin_skill_root = plugin_skill_root_for_skill_path(&skill_path, "sample@test");
+    plugin_skill_root.inject_in_default_context = false;
+    let skills_manager = SkillsManager::new(
+        codex_home.path().abs(),
+        /*bundled_skills_enabled*/ true,
+    );
+
+    let outcome = skills_for_config_with_stack(
+        &skills_manager,
+        &cwd,
+        &config_layer_stack,
+        &[plugin_skill_root],
+    )
+    .await;
+    let skill = outcome
+        .skills
+        .iter()
+        .find(|skill| skill.name == "sample:sample-search")
+        .expect("on-demand plugin skill should still load for explicit use");
+
+    assert!(!outcome.disabled_paths.contains(&skill.path_to_skills_md));
     assert!(
         !outcome
             .allowed_skills_for_implicit_invocation()

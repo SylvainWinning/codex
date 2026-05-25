@@ -176,6 +176,7 @@ pub fn remote_installed_plugins_to_config(
                 plugin_id.as_key(),
                 PluginConfig {
                     enabled: plugin.enabled,
+                    skill_injection: Default::default(),
                     mcp_servers: HashMap::new(),
                 },
             ))
@@ -515,6 +516,7 @@ async fn load_plugin(
         manifest_description: None,
         root,
         enabled: plugin.enabled,
+        skill_injection: plugin.skill_injection,
         skill_roots: Vec::new(),
         disabled_skill_paths: HashSet::new(),
         has_enabled_skills: false,
@@ -572,7 +574,8 @@ async fn load_plugin(
         skill_config_rules,
     )
     .await;
-    let has_enabled_skills = resolved_skills.has_enabled_skills();
+    let has_enabled_skills =
+        plugin.skill_injection.enables_explicit_skills() && resolved_skills.has_enabled_skills();
     loaded_plugin.disabled_skill_paths = resolved_skills.disabled_skill_paths;
     loaded_plugin.has_enabled_skills = has_enabled_skills;
     let mut mcp_servers = HashMap::new();
@@ -656,6 +659,7 @@ pub async fn load_plugin_skills(
             file_system: Arc::clone(&LOCAL_FS),
             plugin_id: Some(plugin_id.as_key()),
             plugin_root: Some(plugin_root.clone()),
+            inject_in_default_context: true,
         })
         .collect::<Vec<_>>();
     let outcome = load_skills_from_roots(roots).await;
