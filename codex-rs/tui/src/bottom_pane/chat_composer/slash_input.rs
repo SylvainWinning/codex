@@ -115,11 +115,19 @@ impl<'a> SlashInput<'a> {
         }
 
         let command = self.command(name)?;
-        command.supports_inline_args().then_some(InlineCommand {
-            command,
-            rest,
-            rest_offset,
-        })
+        match command {
+            SlashCommandItem::Builtin(cmd) if cmd.supports_inline_args() => Some(InlineCommand {
+                command: SlashCommandItem::Builtin(cmd),
+                rest,
+                rest_offset,
+            }),
+            SlashCommandItem::ServiceTier(command) => Some(InlineCommand {
+                command: SlashCommandItem::ServiceTier(command),
+                rest,
+                rest_offset,
+            }),
+            SlashCommandItem::Builtin(_) => None,
+        }
     }
 
     pub(super) fn should_parse_on_dequeue(&self, text: &str) -> bool {

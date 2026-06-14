@@ -14,6 +14,7 @@ use crate::bottom_pane::slash_commands::SlashCommandItem;
 use crate::bottom_pane::slash_commands::find_slash_command;
 use crate::goal_display::GOAL_USAGE;
 use crate::goal_files::GoalDraft;
+use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SlashCommandDispatchSource {
@@ -63,6 +64,39 @@ impl ChatWidget {
             return;
         }
         self.toggle_service_tier_from_ui(command);
+        self.bottom_pane.record_pending_slash_command_history();
+    }
+
+    pub(super) fn handle_service_tier_command_with_args_dispatch(
+        &mut self,
+        command: ServiceTierCommand,
+        args: String,
+    ) {
+        if self.active_side_conversation {
+            self.add_error_message(format!(
+                "'/{}' is unavailable in side conversations. {SIDE_SLASH_COMMAND_UNAVAILABLE_HINT}",
+                command.name
+            ));
+            self.bottom_pane.drain_pending_submission_state();
+            self.bottom_pane.record_pending_slash_command_history();
+            return;
+        }
+
+        match args.trim().to_ascii_lowercase().as_str() {
+            "" => self.toggle_service_tier_from_ui(command),
+            "on" => self.select_service_tier_from_ui(Some(command.id)),
+            "off" => self
+                .select_service_tier_from_ui(Some(SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string())),
+            "status" => {
+                let state = if self.current_service_tier() == Some(command.id.as_str()) {
+                    "on"
+                } else {
+                    "off"
+                };
+                self.add_info_message(format!("/{} is {state}.", command.name), /*hint*/ None);
+            }
+            _ => self.add_error_message(format!("Usage: /{} [on|off|status]", command.name)),
+        }
         self.bottom_pane.record_pending_slash_command_history();
     }
 
@@ -952,14 +986,22 @@ impl ChatWidget {
         }
 
         if !command.supports_inline_args() {
-            self.submit_user_message(UserMessage {
-                text,
-                local_images,
-                remote_image_urls,
-                text_elements,
-                mention_bindings,
-            });
-            return QueueDrain::Stop;
+            return match command {
+                SlashCommandItem::Builtin(_) => {
+                    self.submit_user_message(UserMessage {
+                        text,
+                        local_images,
+                        remote_image_urls,
+                        text_elements,
+                        mention_bindings,
+                    });
+                    QueueDrain::Stop
+                }
+                SlashCommandItem::ServiceTier(command) => {
+                    self.handle_service_tier_command_with_args_dispatch(command, rest.to_string());
+                    QueueDrain::Continue
+                }
+            };
         }
         let SlashCommandItem::Builtin(cmd) = command else {
             self.submit_user_message(UserMessage {

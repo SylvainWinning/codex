@@ -2620,6 +2620,72 @@ async fn fast_slash_command_updates_and_persists_local_service_tier() {
 }
 
 #[tokio::test]
+async fn fast_slash_command_accepts_on_off_status_args() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.4")).await;
+    set_fast_mode_test_catalog(&mut chat);
+    chat.set_feature_enabled(Feature::FastMode, /*enabled*/ true);
+
+    chat.handle_service_tier_command_with_args_dispatch(fast_tier_command(), "on".to_string());
+    let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            AppEvent::CodexOp(Op::OverrideTurnContext {
+                service_tier: Some(Some(service_tier)),
+                ..
+            }) if service_tier == ServiceTier::Fast.request_value()
+        )),
+        "expected explicit /fast on to set fast service tier; events: {events:?}"
+    );
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            AppEvent::PersistServiceTierSelection {
+                service_tier: Some(service_tier),
+            } if service_tier == ServiceTier::Fast.request_value()
+        )),
+        "expected explicit /fast on to persist fast service tier; events: {events:?}"
+    );
+
+    chat.handle_service_tier_command_with_args_dispatch(fast_tier_command(), "status".to_string());
+    let cells = drain_insert_history(&mut rx);
+    let rendered = cells
+        .iter()
+        .map(|lines| lines_to_single_string(lines))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        rendered.contains("/fast is on."),
+        "expected /fast status to report current state, got {rendered:?}"
+    );
+
+    chat.handle_service_tier_command_with_args_dispatch(fast_tier_command(), "off".to_string());
+    let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            AppEvent::CodexOp(Op::OverrideTurnContext {
+                service_tier: Some(Some(service_tier)),
+                ..
+            }) if service_tier == SERVICE_TIER_DEFAULT_REQUEST_VALUE
+        )),
+        "expected explicit /fast off to set default service tier; events: {events:?}"
+    );
+
+    chat.handle_service_tier_command_with_args_dispatch(fast_tier_command(), "maybe".to_string());
+    let cells = drain_insert_history(&mut rx);
+    let rendered = cells
+        .iter()
+        .map(|lines| lines_to_single_string(lines))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        rendered.contains("Usage: /fast [on|off|status]"),
+        "expected /fast usage for invalid arg, got {rendered:?}"
+    );
+}
+
+#[tokio::test]
 async fn fast_keybinding_toggle_uses_same_events_as_fast_slash_command() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(Some("gpt-5.4")).await;
     set_fast_mode_test_catalog(&mut chat);

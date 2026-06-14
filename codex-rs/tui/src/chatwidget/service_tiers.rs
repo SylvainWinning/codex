@@ -72,6 +72,10 @@ impl ChatWidget {
         self.set_service_tier_selection(next_tier);
     }
 
+    pub(crate) fn select_service_tier_from_ui(&mut self, service_tier: Option<String>) {
+        self.set_service_tier_selection(service_tier);
+    }
+
     pub(super) fn sync_service_tier_commands(&mut self) {
         self.bottom_pane
             .set_service_tier_commands_enabled(self.fast_mode_enabled());
