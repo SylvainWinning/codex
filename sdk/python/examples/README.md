@@ -1,9 +1,12 @@
 # Python SDK Examples
 
-Each example folder contains runnable versions:
+Most example folders contain runnable versions:
 
 - `sync.py` (public sync surface: `Codex`)
 - `async.py` (public async surface: `AsyncCodex`)
+
+`09_async_parity/` currently provides only `sync.py`. It demonstrates sync
+usage parity with async patterns covered by the other examples.
 
 All examples intentionally use only public SDK exports from `openai_codex`
 and `openai_codex.types`.
@@ -45,7 +48,7 @@ From `sdk/python`:
 
 ```bash
 python examples/<example-folder>/sync.py
-python examples/<example-folder>/async.py
+python examples/<example-folder>/async.py  # when present
 ```
 
 The checked-in examples use the local SDK source tree automatically.

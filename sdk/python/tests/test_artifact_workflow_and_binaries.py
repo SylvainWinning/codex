@@ -365,6 +365,22 @@ def test_examples_readme_points_to_runtime_version_source_of_truth() -> None:
     assert "The pinned runtime version comes from the SDK package dependency." in readme
 
 
+def test_examples_readme_documents_sync_only_examples() -> None:
+    """Keep the examples guide honest about folders without async entrypoints."""
+    examples_root = ROOT / "examples"
+    sync_only_examples = sorted(
+        path.name
+        for path in examples_root.iterdir()
+        if path.is_dir() and (path / "sync.py").exists() and not (path / "async.py").exists()
+    )
+    readme = (examples_root / "README.md").read_text()
+
+    assert sync_only_examples == ["09_async_parity"]
+    for example in sync_only_examples:
+        assert f"`{example}/` currently provides only `sync.py`." in readme
+    assert "python examples/<example-folder>/async.py  # when present" in readme
+
+
 def test_runtime_distribution_name_is_consistent() -> None:
     script = _load_update_script_module()
     runtime_setup = _load_runtime_setup_module()
